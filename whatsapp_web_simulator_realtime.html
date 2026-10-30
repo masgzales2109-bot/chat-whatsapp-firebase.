@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp Web Realtime</title>
+    <!-- FontAwesome para Iconos -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        wa: {
+                            teal: '#075e54',
+                            tealDark: '#128c7e',
+                            green: '#25d366',
+                            lightGreen: '#dcf8c6',
+                            bgLight: '#efeae2',
+                            bgDark: '#0b141a',
+                            panelLight: '#f0f2f5',
+                            panelDark: '#111b21',
+                            bubbleUserDark: '#005c4b',
+                            bubbleContactDark: '#202c33',
+                            borderLight: '#e9edef',
+                            borderDark: '#222d34'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Fondo con patrón de marca de agua tipo WhatsApp */
+        .chat-bg-pattern {
+            background-color: #efeae2;
+            background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        .dark .chat-bg-pattern {
+            background-color: #0b141a;
+            background-image: radial-gradient(#1e293b 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 3px;
+        }
+        .dark ::webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        /* Animación de entrada */
+        @keyframes popIn {
+            0% { opacity: 0; transform: translateY(10px) scale(0.98); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .message-anim {
+            animation: popIn 0.15s ease-out forwards;
+        }
+
+        /* Responsive Layout Switcher */
+        @media (max-width: 768px) {
+            .sidebar-open .chat-sidebar { display: flex; width: 100%; }
+            .sidebar-open .chat-area { display: none; }
+            .chat-open .chat-sidebar { display: none; }
+            .chat-open .chat-area { display: flex; width: 100%; }
+        }
+    </style>
+</head>
+<body class="bg-gray-200 dark:bg-gray-900 font-sans antialiased h-screen overflow-hidden flex justify-center items-center">
+
+    <!-- Modal para Configuración Inicial de Nombre y Sala -->
+    <div id="setupModal" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-wa-panelDark rounded-2xl max-w-md w-full p-6 shadow-2xl border border-wa-borderLight dark:border-wa-borderDark">
+            <div class="text-center mb-6">
+                <div class="w-16 h-16 bg-wa-green text-white rounded-full flex items-center justify-center mx-auto text-3xl mb-3 shadow-lg">
+                    <i class="fa-brands fa-whatsapp"></i>
+                </div>
+                <h2 class="text-2xl font-bold text-gray-800 dark:text-gray-100">Entrar al Chat en Tiempo Real</h2>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Ingresa tu nombre y el código de sala que compartirás con tus amigos.</p>
+            </div>
+
+            <form id="setupForm" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">Tu Nombre de Usuario</label>
+                    <input type="text" id="usernameInput" required placeholder="Ej: María, Carlos, Juan..." class="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:border-wa-tealDark">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">ID de la Sala (Room ID)</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="roomIdInput" required placeholder="Ej: mi-sala-123" class="w-full px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-800 dark:text-gray-100 focus:outline-none focus:border-wa-tealDark">
+                        <button type="button" id="randomRoomBtn" class="px-3 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg text-xs hover:bg-gray-300 font-semibold transition" title="Generar ID aleatorio">
+                            Azar
+                        </button>
+                    </div>
+                    <p class="text-[11px] text-gray-400 mt-1">Cualquier persona que ingrese el mismo ID de sala se conectará al mismo chat.</p>
+                </div>
+
+                <button type="submit" class="w-full py-3 bg-wa-tealDark hover:bg-wa-teal text-white font-semibold rounded-lg shadow-md transition flex items-center justify-center gap-2">
+                    <span>Unirse al Chat</span>
+                    <i class="fa-solid fa-arrow-right text-sm"></i>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- App Container -->
+    <div id="app" class="w-full h-full max-w-[1600px] h-[100vh] md:h-[95vh] md:rounded-2xl shadow-2xl overflow-hidden flex flex-row bg-white dark:bg-wa-panelDark chat-open md:sidebar-open">
+
+        <!-- ================= SIDEBAR ================= -->
+        <aside class="chat-sidebar w-full md:w-[380px] lg:w-[420px] flex-col border-r border-wa-borderLight dark:border-wa-borderDark bg-white dark:bg-wa-panelDark h-full flex shrink-0">
+            <!-- Sidebar Header -->
+            <div class="h-16 bg-wa-panelLight dark:bg-wa-panelDark px-4 flex items-center justify-between border-b border-wa-borderLight dark:border-wa-borderDark">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full bg-wa-teal text-white flex items-center justify-center font-bold text-lg" id="userAvatarText">
+                        ?
+                    </div>
+                    <div>
+                        <span id="currentUserNameDisplay" class="font-semibold text-gray-800 dark:text-gray-200 text-sm block leading-tight">Usuario</span>
+                        <span id="currentRoomDisplay" class="text-[11px] text-wa-tealDark dark:text-wa-green font-medium">Sala: -</span>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 text-gray-600 dark:text-gray-300">
+                    <button id="copyRoomBtn" class="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition" title="Copiar ID de Sala">
+                        <i class="fa-solid fa-copy text-sm"></i>
+                    </button>
+                    <button id="changeRoomBtn" class="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition" title="Cambiar de Sala">
+                        <i class="fa-solid fa-right-from-bracket text-sm"></i>
+                    </button>
+                    <button id="themeToggleBtn" class="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition" title="Cambiar Tema">
+                        <i class="fa-solid fa-moon text-base dark:hidden"></i>
+                        <i class="fa-solid fa-sun text-base hidden dark:block text-yellow-400"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Información / Estado de Sala -->
+            <div class="p-3 bg-emerald-50 dark:bg-emerald-950/30 border-b border-wa-borderLight dark:border-wa-borderDark flex items-center gap-3">
+                <i class="fa-solid fa-users text-wa-tealDark dark:text-wa-green text-lg"></i>
+                <div class="text-xs">
+                    <p class="font-semibold text-emerald-900 dark:text-emerald-200">Chat Colectivo en Tiempo Real</p>
+                    <p class="text-emerald-700 dark:text-emerald-400">Comparte tu ID de sala para recibir mensajes en directo.</p>
+                </div>
+            </div>
+
+            <!-- Lista de Chats (Salas Recientes o info activa) -->
+            <div class="flex-1 overflow-y-auto p-3 space-y-2">
+                <div class="p-3 rounded-lg bg-gray-100 dark:bg-gray-800/80 border border-wa-borderLight dark:border-wa-borderDark cursor-pointer">
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="font-bold text-sm text-gray-800 dark:text-gray-200 flex items-center gap-2">
+                            <i class="fa-solid fa-comments text-wa-tealDark dark:text-wa-green"></i>
+                            <span id="sidebarRoomTitle">Sala Actual</span>
+                        </span>
+                        <span class="text-[10px] bg-emerald-500 text-white font-bold px-2 py-0.5 rounded-full">EN VIVO</span>
+                    </div>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">Sincronización mediante Firebase Firestore</p>
+                </div>
+            </div>
+        </aside>
+
+        <!-- ================= ÁREA DE CHAT ================= -->
+        <main class="chat-area flex-1 flex-col h-full bg-wa-bgLight dark:bg-wa-bgDark relative flex">
+            
+            <div id="activeChatContainer" class="flex-1 flex flex-col h-full w-full">
+                <!-- Header del Chat -->
+                <header class="h-16 bg-wa-panelLight dark:bg-wa-panelDark px-4 flex items-center justify-between border-b border-wa-borderLight dark:border-wa-borderDark z-10">
+                    <div class="flex items-center gap-3">
+                        <button id="backToSidebarBtn" class="md:hidden text-gray-600 dark:text-gray-300 mr-1 p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full">
+                            <i class="fa-solid fa-arrow-left text-lg"></i>
+                        </button>
+                        <div class="w-10 h-10 rounded-full bg-wa-tealDark flex items-center justify-center text-white text-lg font-bold">
+                            <i class="fa-solid fa-hashtag"></i>
+                        </div>
+                        <div class="flex flex-col">
+                            <h2 id="chatHeaderName" class="font-semibold text-gray-800 dark:text-gray-100 text-sm leading-tight">Sala General</h2>
+                            <span id="chatHeaderStatus" class="text-xs text-emerald-600 dark:text-emerald-400 font-medium">Conectado en tiempo real</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3 text-gray-600 dark:text-gray-300">
+                        <button class="p-2 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full transition" title="Búsqueda">
+                            <i class="fa-solid fa-magnifying-glass text-base"></i>
+                        </button>
+                    </div>
+                </header>
+
+                <!-- Panel de Mensajes (Scrollable) -->
+                <div id="messagesContainer" class="flex-1 overflow-y-auto p-4 chat-bg-pattern space-y-3 flex flex-col">
+                    <div class="text-center my-4">
+                        <span class="bg-white/80 dark:bg-gray-800/80 text-gray-600 dark:text-gray-300 text-xs px-3 py-1.5 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+                            🔒 Los mensajes están encriptados en tránsito y sincronizados en tiempo real
+                        </span>
+                    </div>
+                    <!-- Mensajes dinámicos aquí -->
+                </div>
+
+                <!-- Modulo de Vista Previa de Imagen Adjunta -->
+                <div id="imagePreviewContainer" class="hidden bg-gray-100 dark:bg-gray-800 p-3 border-t border-wa-borderLight dark:border-wa-borderDark flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="relative w-16 h-16 rounded-lg overflow-hidden border border-gray-300 dark:border-gray-600">
+                            <img id="imagePreviewImg" src="" alt="Vista previa" class="w-full h-full object-cover">
+                        </div>
+                        <div>
+                            <p class="text-xs font-semibold text-gray-700 dark:text-gray-200">Imagen lista para enviar</p>
+                            <p id="imagePreviewName" class="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]">imagen.png</p>
+                        </div>
+                    </div>
+                    <button id="cancelImagePreviewBtn" class="text-gray-500 hover:text-red-500 dark:text-gray-400 p-2 rounded-full">
+                        <i class="fa-solid fa-xmark text-lg"></i>
+                    </button>
+                </div>
+
+                <!-- Emoji Picker Container -->
+                <div id="emojiPicker" class="hidden bg-white dark:bg-wa-panelDark border-t border-wa-borderLight dark:border-wa-borderDark p-3 grid grid-cols-8 gap-2 text-xl max-h-40 overflow-y-auto">
+                    <span class="emoji-item cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 p-1 text-center rounded">😀</span>
+                    <span class="emoji-item cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 p-1 text-center rounded">😂</span>
+                    <span class="emoji-item cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 p-1 text-center rounded">😍</span>
+                    <span class="emoji-item cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 p-1 text-center rounded">👍</span>
+                    <span class="emoji-item cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 p-1 text-center rounded">❤️</span>
+                    <span class="emoji-item cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 p-1 text-center rounded">🔥</span>
+                    <span class="emoji-item cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 p-1 text-center rounded">🙌</span>
+                    <span class="emoji-item cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 p-1 text-center rounded">😎</span>
+                    <span class="emoji-item cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 p-1 text-center rounded">😊</span>
+                    <span class="emoji-item cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 p-1 text-center rounded">🎉</span>
+                    <span class="emoji-item cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 p-1 text-center rounded">🤔</span>
+                    <span class="emoji-item cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 p-1 text-center rounded">🙏</span>
+                    <span class="emoji-item cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 p-1 text-center rounded">🚀</span>
+                    <span class="emoji-item cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 p-1 text-center rounded">📷</span>
+                    <span class="emoji-item cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 p-1 text-center rounded">💡</span>
+                    <span class="emoji-item cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 p-1 text-center rounded">✨</span>
+                </div>
+
+                <!-- Footer del Chat -->
+                <footer class="bg-wa-panelLight dark:bg-wa-panelDark px-4 py-2 flex items-center gap-2 border-t border-wa-borderLight dark:border-wa-borderDark z-10">
+                    <button id="emojiBtn" class="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition">
+                        <i class="fa-regular fa-face-smile text-xl"></i>
+                    </button>
+
+                    <button id="attachBtn" class="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition relative">
+                        <i class="fa-solid fa-paperclip text-xl"></i>
+                    </button>
+                    <input type="file" id="imageInput" accept="image/*" class="hidden">
+
+                    <div class="flex-1 relative">
+                        <input type="text" id="messageInput" placeholder="Escribe un mensaje" class="w-full py-2 px-4 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 rounded-lg text-sm focus:outline-none placeholder-gray-500">
+                    </div>
+
+                    <button id="sendBtn" class="p-2.5 bg-wa-tealDark hover:bg-wa-teal text-white rounded-full transition flex items-center justify-center w-10 h-10 shadow-md">
+                        <i id="sendIcon" class="fa-solid fa-paper-plane text-sm"></i>
+                    </button>
+                </footer>
+            </div>
+        </main>
+    </div>
+
+    <!-- Lightbox Modal -->
+    <div id="lightbox" class="fixed inset-0 bg-black/90 z-50 hidden flex flex-col items-center justify-center p-4">
+        <button id="closeLightboxBtn" class="absolute top-4 right-4 text-white text-2xl p-2 hover:bg-white/20 rounded-full w-10 h-10 flex items-center justify-center">
+            <i class="fa-solid fa-xmark"></i>
+        </button>
+        <img id="lightboxImg" src="" alt="Imagen Ampliada" class="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl">
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="fixed bottom-5 right-5 bg-gray-900 text-white px-4 py-2.5 rounded-lg shadow-xl text-xs flex items-center gap-2 transition-opacity duration-300 opacity-0 pointer-events-none z-50">
+        <i class="fa-solid fa-circle-info text-wa-green"></i>
+        <span id="toastMsg">Mensaje</span>
+    </div>
+
+    <!-- ================= FIREBASE & APP SCRIPT ================= -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global App variables
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'whatsapp-realtime-demo';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            apiKey: "demo",
+            authDomain: "demo.firebaseapp.com",
+            projectId: "demo",
+            storageBucket: "demo.appspot.com",
+            messagingSenderId: "123456",
+            appId: "1:123456:web:123456"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        let currentUser = null;
+        let userName = '';
+        let roomId = '';
+        let unsubscribeMessages = null;
+        let selectedImageData = null;
+
+        // Elementos DOM
+        const setupModal = document.getElementById('setupModal');
+        const setupForm = document.getElementById('setupForm');
+        const usernameInput = document.getElementById('usernameInput');
+        const roomIdInput = document.getElementById('roomIdInput');
+        const randomRoomBtn = document.getElementById('randomRoomBtn');
+
+        const userAvatarText = document.getElementById('userAvatarText');
+        const currentUserNameDisplay = document.getElementById('currentUserNameDisplay');
+        const currentRoomDisplay = document.getElementById('currentRoomDisplay');
+        const sidebarRoomTitle = document.getElementById('sidebarRoomTitle');
+        const chatHeaderName = document.getElementById('chatHeaderName');
+
+        const messagesContainerEl = document.getElementById('messagesContainer');
+        const messageInput = document.getElementById('messageInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const attachBtn = document.getElementById('attachBtn');
+        const imageInput = document.getElementById('imageInput');
+        const imagePreviewContainer = document.getElementById('imagePreviewContainer');
+        const imagePreviewImg = document.getElementById('imagePreviewImg');
+        const imagePreviewName = document.getElementById('imagePreviewName');
+        const cancelImagePreviewBtn = document.getElementById('cancelImagePreviewBtn');
+        const emojiBtn = document.getElementById('emojiBtn');
+        const emojiPicker = document.getElementById('emojiPicker');
+        const themeToggleBtn = document.getElementById('themeToggleBtn');
+        const copyRoomBtn = document.getElementById('copyRoomBtn');
+        const changeRoomBtn = document.getElementById('changeRoomBtn');
+        const backToSidebarBtn = document.getElementById('backToSidebarBtn');
+        const appContainer = document.getElementById('app');
+
+        const lightbox = document.getElementById('lightbox');
+        const lightboxImg = document.getElementById('lightboxImg');
+        const closeLightboxBtn = document.getElementById('closeLightboxBtn');
+
+        // Inicializar Autenticación Anónima
+        async function initAuth() {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    const userCredential = await signInWithCustomToken(auth, __initial_auth_token);
+                    currentUser = userCredential.user;
+                } else {
+                    const userCredential = await signInAnonymously(auth);
+                    currentUser = userCredential.user;
+                }
+            } catch (err) {
+                console.error("Auth Error:", err);
+            }
+        }
+
+        initAuth();
+
+        // Generar ID de sala al azar
+        randomRoomBtn.addEventListener('click', () => {
+            const randomId = 'sala-' + Math.random().toString(36).substring(2, 7);
+            roomIdInput.value = randomId;
+        });
+
+        // Toast Helper
+        function showToast(text) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toastMsg').textContent = text;
+            toast.classList.remove('opacity-0', 'pointer-events-none');
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'pointer-events-none');
+            }, 3000);
+        }
+
+        // Ingresar a la Sala
+        setupForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            userName = usernameInput.value.trim();
+            roomId = roomIdInput.value.trim().toLowerCase().replace(/\s+/g, '-');
+
+            if (!userName || !roomId) return;
+
+            // Actualizar interfaz
+            userAvatarText.textContent = userName.charAt(0).toUpperCase();
+            currentUserNameDisplay.textContent = userName;
+            currentRoomDisplay.textContent = `Sala: ${roomId}`;
+            sidebarRoomTitle.textContent = `Sala: ${roomId}`;
+            chatHeaderName.textContent = `Sala: ${roomId}`;
+
+            setupModal.classList.add('hidden');
+
+            // Escuchar mensajes en tiempo real
+            listenToMessages();
+            showToast(`Conectado a la sala: ${roomId}`);
+        });
+
+        // Cambiar de sala
+        changeRoomBtn.addEventListener('click', () => {
+            if (unsubscribeMessages) unsubscribeMessages();
+            setupModal.classList.remove('hidden');
+        });
+
+        // Copiar ID de sala al portapapeles
+        copyRoomBtn.addEventListener('click', () => {
+            if (!roomId) return;
+            const tempInput = document.createElement('input');
+            tempInput.value = roomId;
+            document.body.appendChild(tempInput);
+            tempInput.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempInput);
+            showToast("¡ID de sala copiado al portapapeles!");
+        });
+
+        // Escuchar mensajes en Firestore (RULE 1 & 2 & 3 aplicadas)
+        function listenToMessages() {
+            if (!currentUser || !roomId) return;
+
+            if (unsubscribeMessages) unsubscribeMessages();
+
+            // Ruta estricta de artifact público
+            const messagesRef = collection(db, 'artifacts', appId, 'public', 'data', `room_${roomId}`);
+
+            unsubscribeMessages = onSnapshot(query(messagesRef), (snapshot) => {
+                const messages = [];
+                snapshot.forEach(doc => {
+                    messages.push({ id: doc.id, ...doc.data() });
+                });
+
+                // Ordenar por timestamp en memoria (evita necesidad de índices compuestos)
+                messages.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
+
+                renderMessages(messages);
+            }, (error) => {
+                console.error("Firestore Error:", error);
+                showToast("Error al cargar mensajes en tiempo real.");
+            });
+        }
+
+        // Renderizar Mensajes
+        function renderMessages(messages) {
+            messagesContainerEl.innerHTML = '';
+
+            messages.forEach(msg => {
+                const isUser = msg.senderUid === currentUser?.uid;
+                const msgWrap = document.createElement('div');
+                msgWrap.className = `flex w-full mb-2 ${isUser ? 'justify-end' : 'justify-start'}`;
+
+                const bubble = document.createElement('div');
+                bubble.className = `message-anim max-w-[85%] md:max-w-[65%] rounded-lg px-3 py-1.5 shadow-sm relative text-sm ${
+                    isUser 
+                    ? 'bg-wa-lightGreen dark:bg-wa-bubbleUserDark text-gray-900 dark:text-gray-100 rounded-tr-none' 
+                    : 'bg-white dark:bg-wa-bubbleContactDark text-gray-900 dark:text-gray-100 rounded-tl-none'
+                }`;
+
+                let contentHtml = '';
+
+                // Nombre del remitente si no es el usuario actual
+                if (!isUser) {
+                    contentHtml += `<p class="text-[11px] font-bold text-wa-tealDark dark:text-wa-green mb-0.5">${escapeHtml(msg.senderName || 'Anónimo')}</p>`;
+                }
+
+                // Imagen
+                if (msg.image) {
+                    contentHtml += `
+                        <div class="mb-1 rounded-md overflow-hidden cursor-pointer">
+                            <img src="${msg.image}" alt="Imagen enviada" class="max-h-60 w-full object-cover hover:opacity-95 transition" onclick="window.openLightbox('${msg.image}')">
+                        </div>
+                    `;
+                }
+
+                // Texto
+                if (msg.text) {
+                    contentHtml += `<p class="break-words leading-relaxed">${escapeHtml(msg.text)}</p>`;
+                }
+
+                // Hora
+                const timeStr = msg.createdAt?.seconds 
+                    ? new Date(msg.createdAt.seconds * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                contentHtml += `
+                    <div class="flex items-center justify-end gap-1 text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 ml-4 float-right">
+                        <span>${timeStr}</span>
+                        ${isUser ? `<i class="fa-solid fa-check-double text-blue-500 text-xs"></i>` : ''}
+                    </div>
+                `;
+
+                bubble.innerHTML = contentHtml;
+                msgWrap.appendChild(bubble);
+                messagesContainerEl.appendChild(msgWrap);
+            });
+
+            scrollToBottom();
+        }
+
+        function scrollToBottom() {
+            messagesContainerEl.scrollTop = messagesContainerEl.scrollHeight;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.innerText = text;
+            return div.innerHTML;
+        }
+
+        // Enviar Mensaje a Firestore
+        async function sendMessage() {
+            const text = messageInput.value.trim();
+
+            if ((!text && !selectedImageData) || !currentUser || !roomId) return;
+
+            const messagesRef = collection(db, 'artifacts', appId, 'public', 'data', `room_${roomId}`);
+
+            const payload = {
+                text: text,
+                image: selectedImageData,
+                senderName: userName,
+                senderUid: currentUser.uid,
+                createdAt: serverTimestamp()
+            };
+
+            // Limpiar inputs inmediatamente
+            messageInput.value = '';
+            clearImagePreview();
+            emojiPicker.classList.add('hidden');
+
+            try {
+                await addDoc(messagesRef, payload);
+            } catch (err) {
+                console.error("Error enviando mensaje:", err);
+                showToast("No se pudo enviar el mensaje.");
+            }
+        }
+
+        // Manejo de Imágenes (Compresión a Base64)
+        attachBtn.addEventListener('click', () => imageInput.click());
+
+        imageInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                // Limitar tamaño previa conversión a Base64
+                if (file.size > 2 * 1024 * 1024) {
+                    showToast("Por favor selecciona una imagen menor a 2MB.");
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onload = function(evt) {
+                    selectedImageData = evt.target.result;
+                    imagePreviewImg.src = selectedImageData;
+                    imagePreviewName.textContent = file.name;
+                    imagePreviewContainer.classList.remove('hidden');
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        function clearImagePreview() {
+            selectedImageData = null;
+            imageInput.value = '';
+            imagePreviewContainer.classList.add('hidden');
+        }
+
+        cancelImagePreviewBtn.addEventListener('click', clearImagePreview);
+
+        // Emoji Picker
+        emojiBtn.addEventListener('click', () => {
+            emojiPicker.classList.toggle('hidden');
+        });
+
+        document.querySelectorAll('.emoji-item').forEach(emoji => {
+            emoji.addEventListener('click', (e) => {
+                messageInput.value += e.target.innerText;
+                messageInput.focus();
+            });
+        });
+
+        // Lightbox
+        window.openLightbox = function(src) {
+            lightboxImg.src = src;
+            lightbox.classList.remove('hidden');
+        };
+
+        closeLightboxBtn.addEventListener('click', () => lightbox.classList.add('hidden'));
+        lightbox.addEventListener('click', (e) => {
+            if (e.target === lightbox) lightbox.classList.add('hidden');
+        });
+
+        // Eventos
+        sendBtn.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        themeToggleBtn.addEventListener('click', () => {
+            document.documentElement.classList.toggle('dark');
+        });
+
+        backToSidebarBtn.addEventListener('click', () => {
+            appContainer.classList.remove('chat-open');
+            appContainer.classList.add('sidebar-open');
+        });
+    </script>
+</body>
+</html>
